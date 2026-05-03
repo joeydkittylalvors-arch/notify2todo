@@ -1,0 +1,47 @@
+# ===== QQ邮箱配置 =====
+qqmail:
+  imap_server: "imap.qq.com"
+  imap_port: 993
+  email: "your_email@qq.com"
+  # 授权码（非QQ密码），在QQ邮箱设置-账户-POP3/IMAP服务中生成
+  auth_code: "xxxxxxxxxxxxxx"
+  # SMTP配置（用于发送ICS附件邮件）
+  smtp_server: "smtp.qq.com"
+  smtp_port: 465
+  # 搜索关键词（同时匹配主题）
+  keywords:
+    - "成绩"
+    - "考试"
+    - "通知"
+    - "作业"
+    - "缴费"
+    - "重要"
+    - "截止"
+  # 排除的发件人
+  exclude_senders: []
+  # 查询最近N天的邮件
+  lookback_days: 7
+
+# ===== 学习通配置 =====
+chaoxing:
+  username: "你的学号/手机号"
+  password: "你的密码"
+  school_name: "你的学校全称"
+  lookback_days: 7
+
+# ===== ICS输出配置 =====
+ics:
+  output_dir: "./output"
+  filename: "todo_events.ics"
+  default_alarm_minutes: 30
+  calendar_name: "通知待办"
+
+# ===== 数据库配置 =====
+database:
+  path: "./db/todo.db"
+
+# ===== 日志配置 =====
+logging:
+  level: "INFO"
+  max_bytes: 10485760
+  backup_count: 5
