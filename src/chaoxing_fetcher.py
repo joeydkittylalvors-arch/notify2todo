@@ -8,8 +8,8 @@ logger = get_logger("chaoxing_fetcher")
 ADB_PATH = r"C:\Program Files\Netease\MuMu\nx_device\12.0\shell\adb.exe"
 DEVICE = "127.0.0.1:7555"
 
-# 排除的消息（广告/无关内容关键词）
-EXCLUDE_MSG = ["拿0元", "现金应用", "直播预约", "广告"]
+# 只收录的消息类型关键词
+INCLUDE_TYPES = ["作业", "考试", "测验", "课程通知", "课程到期", "截止"]
 
 
 class ChaoxingFetcher:
@@ -90,58 +90,62 @@ class ChaoxingFetcher:
         return items
 
     def _parse_messages(self, ui_xml: str) -> list:
-        """从UI XML解析收件箱消息 — 提取有效消息内容"""
+        """从UI XML解析收件箱消息 — 基于Y坐标提取有效消息内容"""
         items = []
         seen = set()
 
-        # 已知的UI元素/发件人/标签（非消息内容）
-        SKIP_TEXTS = {
-            "消息", "通知", "通讯录", "收件箱", "首页", "笔记", "我",
-            "课程通知", "学习通校园", "学习通活动通知", "超星教师论坛",
+        SKIP_TOP = {"消息", "通知", "课程通知", "通讯录", "收件箱", "首页", "笔记", "我"}
+        SKIP_SENDERS = {
+            "学习通校园", "学习通活动通知", "超星教师论坛",
             "学习通通知", "回复我的", "验证信息", "小助手", "其他", "教务通知",
             "已加载全部", "全部",
         }
 
         try:
             root = ET.fromstring(ui_xml)
-            all_texts = []
+            rows = {}  # Y坐标 -> [text]
             for elem in root.iter():
                 text = (elem.get("text") or "").strip()
-                if text and len(text) >= 3:
-                    all_texts.append(text)
+                bounds = elem.get("bounds", "")
+                if text and len(text) >= 2 and bounds:
+                    try:
+                        y = int(bounds.split("][")[0].split(",")[1])
+                    except:
+                        continue
+                    if y < 250:  # 顶部UI元素跳过
+                        continue
+                    if y not in rows:
+                        rows[y] = []
+                    rows[y].append(text)
 
-            for text in all_texts:
-                # 跳过UI标签、发件人、日期、数字
-                if text in SKIP_TEXTS:
-                    continue
-                if re.match(r"^\d{1,2}$", text):  # 纯数字(徽章)
-                    continue
-                if re.match(r"^\d{2,4}[-/]\d{2}", text):  # 日期格式
-                    continue
-                if re.match(r"^\d+$", text):  # 纯数字
-                    continue
+            # 按Y坐标处理：每行可能包含 [sender, date] 或 [title] 或 [sender]
+            sorted_rows = sorted(rows.items())
+            for y, texts in sorted_rows:
+                for text in texts:
+                    if text in SKIP_TOP or text in SKIP_SENDERS:
+                        continue
+                    if re.match(r"^\d{1,3}$", text):
+                        continue
+                    if re.match(r"^\d{2,4}[-/]\d{2}", text):
+                        continue
+                    if len(text) < 4:
+                        continue
+                    if not self._should_include("", text):
+                        continue
 
-                # 至少10个字符才算有效消息内容
-                if len(text) < 10:
-                    continue
-
-                # 过滤广告
-                if not self._should_include("", text):
-                    continue
-
-                msg_id = f"inbox_{abs(hash(text)) & 0xFFFFFFFF:08x}"
-                if msg_id not in seen:
-                    seen.add(msg_id)
-                    items.append({
-                        "source": "chaoxing",
-                        "source_id": msg_id,
-                        "title": text[:80],
-                        "summary": "",
-                        "url": "",
-                        "event_date": datetime.now().strftime("%Y-%m-%d"),
-                        "type": self._classify(text),
-                        "sender": "",
-                    })
+                    msg_id = f"inbox_{abs(hash(text)) & 0xFFFFFFFF:08x}"
+                    if msg_id not in seen:
+                        seen.add(msg_id)
+                        items.append({
+                            "source": "chaoxing",
+                            "source_id": msg_id,
+                            "title": text[:80],
+                            "summary": "",
+                            "url": "",
+                            "event_date": datetime.now().strftime("%Y-%m-%d"),
+                            "type": self._classify(text),
+                            "sender": "",
+                        })
 
         except Exception as e:
             logger.error(f"解析UI失败: {e}")
@@ -167,11 +171,11 @@ class ChaoxingFetcher:
         return True
 
     def _should_include(self, sender: str, title: str) -> bool:
-        """判断消息是否值得收录"""
-        for ex in EXCLUDE_MSG:
-            if ex in sender or ex in title:
-                return False
-        return True
+        """只收录包含作业/考试/课程通知关键字的有效消息"""
+        for kw in INCLUDE_TYPES:
+            if kw in title:
+                return True
+        return False
 
     def _classify(self, title: str) -> str:
         """分类消息类型"""

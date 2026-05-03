@@ -12,7 +12,7 @@ class QQMailConfig:
     auth_code: str
     smtp_server: str
     smtp_port: int
-    keywords: list
+    allowed_senders: list = field(default_factory=list)
     exclude_senders: list = field(default_factory=list)
     lookback_days: int = 7
 
@@ -80,7 +80,7 @@ def load_config(config_path: str) -> AppConfig:
         auth_code=qqmail_raw["auth_code"],
         smtp_server=qqmail_raw.get("smtp_server", "smtp.qq.com"),
         smtp_port=qqmail_raw.get("smtp_port", 465),
-        keywords=qqmail_raw.get("keywords", ["通知", "作业", "考试", "重要", "截止"]),
+        allowed_senders=qqmail_raw.get("allowed_senders", []),
         exclude_senders=qqmail_raw.get("exclude_senders", []),
         lookback_days=qqmail_raw.get("lookback_days", 7),
     )

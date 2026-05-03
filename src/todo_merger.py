@@ -6,7 +6,7 @@ from src.logger import get_logger
 logger = get_logger("todo_merger")
 
 PAST_CUTOFF_DAYS = 7   # 超过7天前的跳过（已过期）
-FUTURE_CUTOFF_DAYS = 35  # 超过35天后的跳过（太远）
+FUTURE_CUTOFF_DAYS = 30  # 超过30天后的跳过（一个月以外）
 
 
 class TodoMerger:

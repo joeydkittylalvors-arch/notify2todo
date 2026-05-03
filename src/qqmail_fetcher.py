@@ -115,7 +115,7 @@ class QQMailFetcher:
 
             # 批量获取邮件头部 + 正文前800字符
             batch_size = 20
-            keywords_lower = [kw.lower() for kw in self.config.keywords]
+            allowed_lower = [s.lower() for s in getattr(self.config, 'allowed_senders', [])]
             exclude_lower = [s.lower() for s in self.config.exclude_senders]
 
             for i in range(0, len(uid_list), batch_size):
@@ -128,19 +128,16 @@ class QQMailFetcher:
                     if status != "OK":
                         continue
 
-                    # 标准的 imaplib 响应解析：只处理 tuple 类型的响应项
-                    current_item = {}
                     for part in msg_data:
                         if isinstance(part, tuple):
                             response_bytes = part[0]
                             data_bytes = part[1]
-                            # 从响应行提取 UID
                             uid_match = re.search(rb"UID (\d+)", response_bytes)
                             if not uid_match:
                                 continue
                             uid = uid_match.group(1).decode()
                             item = self._parse_email_response(
-                                uid, data_bytes, keywords_lower, exclude_lower
+                                uid, data_bytes, allowed_lower, exclude_lower
                             )
                             if item:
                                 items.append(item)
@@ -159,34 +156,38 @@ class QQMailFetcher:
         logger.info(f"QQ邮箱解析完成: {len(items)} 条匹配通知")
         return items
 
-    def _parse_email_response(self, uid: str, data_bytes, keywords_lower, exclude_lower) -> dict | None:
-        """解析单封邮件的响应数据，在Python侧筛选关键词"""
+    def _parse_email_response(self, uid: str, data_bytes, allowed_lower, exclude_lower) -> dict | None:
+        """解析单封邮件——白名单发件人匹配"""
         try:
             msg = email.message_from_bytes(data_bytes)
         except Exception as e:
             logger.debug(f"解析邮件数据失败: {e}")
             return None
 
-        # 解析主题
         subject = decode_email_header(msg.get("Subject", ""))
         if not subject:
             return None
 
-        # 解析发件人
         sender = decode_email_header(msg.get("From", ""))
+        sender_lower = sender.lower()
 
         # 排除发件人
         for ex in exclude_lower:
-            if ex in sender.lower():
+            if ex in sender_lower:
                 return None
 
-        # 获取 Message-ID 作为唯一标识
+        # 白名单匹配
+        if allowed_lower:
+            if not any(a in sender_lower for a in allowed_lower):
+                return None
+
+        # Message-ID
         message_id = msg.get("Message-ID", "")
         if not message_id:
             raw_id = f"{msg.get('Date', '')}{subject}"
             message_id = hashlib.sha256(raw_id.encode()).hexdigest()[:32]
 
-        # 获取邮件日期
+        # 邮件日期
         date_str = msg.get("Date", "")
         try:
             parsed_date = email.utils.parsedate_to_datetime(date_str)
@@ -194,7 +195,7 @@ class QQMailFetcher:
         except Exception:
             event_date = datetime.now().strftime("%Y-%m-%d")
 
-        # 获取正文摘要
+        # 正文摘要
         text_content = ""
         if msg.is_multipart():
             for part in msg.walk():
@@ -217,22 +218,10 @@ class QQMailFetcher:
             except Exception:
                 pass
 
-        # 在 Python 侧按关键词过滤主题+正文
-        search_text = (subject + " " + text_content).lower()
-        matched = False
-        for kw in keywords_lower:
-            if kw in search_text:
-                matched = True
-                break
-
-        if not matched:
-            return None
-
-        # 摘要：取正文前200字符，去除HTML标签
         summary = text_content.strip()[:200] if text_content else ""
         summary = re.sub(r"<[^>]+>", "", summary)
 
-        # 尝试从正文/主题中提取截止日期
+        # 尝试提取截止日期
         extracted_date = extract_date_from_text(subject + " " + text_content[:500])
         if extracted_date:
             event_date = extracted_date
